@@ -10,7 +10,7 @@ endif
 
 all: rtcmfilter
 
-rtcmfilter:	rtcmfilter.o
+rtcmfilter:	rtcmfilter.o messagehandler.o
 	$(CC) -o $@ $^
 	
 test: send_test_data.o
@@ -23,4 +23,4 @@ nodebug: rtcmfilter.c
 	$(CC) -g -c $(CFLAGS) $(CPPFLAGS) -o $@ $<
 	
 clean:
-	$(RM) -f rtcmfilter rtcmfilter.o send_test_data send_test_data.o core
+	$(RM) -f rtcmfilter rtcmfilter.o messagehandler.o send_test_data send_test_data.o core
