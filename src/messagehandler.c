@@ -42,6 +42,7 @@
 #define STATE_PROCESSING_CONTINUATION_OF_RTCM_MESSAGE_WITH_INCOMPLETE_HEADER 3
 
 extern int verboseMode;
+extern int addNewline;
 
 static int numberOfRtcmMessagesDisplayed = 0;
 static int numberOfOtherMessagesDisplayed = 0;
@@ -453,8 +454,10 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 				outputBuffer = addMessageFragmentToBuffer(outputBuffer, inputBuffer.content, messageRemaining);
 				rtcmMessageBytesSent = 0;	// Reset ready for the next trip.
 
-				// Add a newline (only needed to help read the output during testing).
-				outputBuffer = addMessageFragmentToBuffer(outputBuffer, "\n", 1);
+				if (addNewline) {
+					// Add a newline (only needed to help read the output during testing).
+					outputBuffer = addMessageFragmentToBuffer(outputBuffer, "\n", 1);
+				}
 
 				// The message is assembled and ready for display (if we are doing that).
 				if (verboseMode > 0 && displayingRtcmMessages()) {
@@ -517,14 +520,17 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 					outputBuffer = addMessageFragmentToBuffer(outputBuffer, messageFragment, totalRtcmMessageLength);
 					rtcmMessageBytesSent = 0;	// Reset ready for the next call.
 
-					// Add a newline (only needed to help read the output during testing).
-					outputBuffer = addMessageFragmentToBuffer(outputBuffer, "\n", 1);
+					if (addNewline) {
+						// Add a newline (only needed to help read the output during testing).
+						outputBuffer = addMessageFragmentToBuffer(outputBuffer, "\n", 1);
+					}
 
 					// Display the messages collected so far.
 					if (verboseMode > 0 && displayingRtcmMessages()) {
 						fprintf(stderr, "\nOuput buffer now contains\n");
 						displayBuffer(outputBuffer, state);
 					}
+
 					i += totalRtcmMessageLength;    // Move to the next message.
 					numberOfOtherMessagesDisplayed++;
 					state = STATE_EATING_MESSAGES;

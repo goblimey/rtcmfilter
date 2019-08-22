@@ -11,7 +11,10 @@ OBJS = rtcmfilter.o
 #endif
 
 all:
-	$(MAKE) -C $(PROJECT_ROOT)/src
+	$(MAKE) -C $(PROJECT_ROOT)/src all
+
+test:
+	$(MAKE) -C $(PROJECT_ROOT)/src test
 
 clean:
 	$(MAKE) -C $(PROJECT_ROOT)/src clean
