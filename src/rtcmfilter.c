@@ -984,7 +984,6 @@ static void send_receive_loop()
     	for (int i = 0; i < outputBuffer->length; i++) {
     		putc(outputBuffer->content[i], stdout);
     	}
-    	putc('\n', stderr);
 
     	// Free the output buffer.
     	freeBuffer(outputBuffer);
