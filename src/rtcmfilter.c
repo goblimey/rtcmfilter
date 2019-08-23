@@ -13,8 +13,8 @@
  *
  * A verbose mode is provided to aid debugging a new installation.  In this
  * mode the filter displays the first 50 RTCM messages and any other messages
- * that appear between them.  If no RTCM messages are see, it displays the
- * first thousand messages.
+ * that appear between them.  To prevent endless output, if no RTCM messages
+ * are seen, it displays the first 50 input buffers.
  *
  * This program is a hacked version of the BKG NTRIP server, which is
  * distributed here:  https://software.rtcm-ntrip.org/.  That's distributed
@@ -159,14 +159,9 @@ HANDLE gps_serial              = INVALID_HANDLE_VALUE;
 static int sigalarm_received   = 0;
 static int sigint_received     = 0;
 static int reconnect_sec       = 1;
-static const char * casterouthost = NTRIP_CASTER;
-static char rtsp_extension[SZ] = "";
-static const char * mountpoint = NULL;
 static int udp_cseq            = 1;
-static int udp_tim, udp_seq, udp_init;
 
 static int inputFromFile = FALSE;
-static int fileProcessingComplete = FALSE;
 
 /* Forward references */
 static void send_receive_loop();
@@ -453,7 +448,7 @@ int main(int argc, char **argv)
     		int fileAccessMode = fcntl(gps_file, F_GETFL, 0);
     		fileAccessMode &= O_NONBLOCK;
     		fcntl(gps_file, F_SETFL, fileAccessMode);
-            fprintf(stderr, "input is from stdin, non-blocking\n");
+            fprintf(stderr, "input is from stdin\n");
     	}
     	else
     	{
@@ -973,27 +968,44 @@ static void send_receive_loop()
     Buffer inputBuffer;
     inputBuffer.content = buffer;
     inputBuffer.length = nBufferBytes;
+
+    if (displaying()) {
+    	displayBuffer(&inputBuffer);
+    }
     Buffer * outputBuffer = getRtcmMessages(inputBuffer);
 
     // If the input buffer contains any RTCM messages (complete or fragments) write it to stdout.
-    if (outputBuffer != NULL) {
+    if (outputBuffer == NULL) {
     	if (verboseMode > 0 && displayingBuffers()) {
-    		fprintf(stderr, "\nwriting buffer - length %ld\n", outputBuffer->length);
-    	}
-
-    	for (int i = 0; i < outputBuffer->length; i++) {
-    		putc(outputBuffer->content[i], stdout);
-    	}
-
-    	// Free the output buffer.
-    	freeBuffer(outputBuffer);
-    	outputBuffer = NULL;
-    } else {
-    	if (verboseMode > 0 && displayingBuffers()) {
-			fprintf(stderr, "\nempty buffer\n");
+			fprintf(stderr, "\noutput buffer is null after processing\n");
 		}
+    	// Signal that the buffer is processed.
+    	nBufferBytes = 0;
+    	continue;
     }
-    // The buffer is processed.
+
+    if (outputBuffer->length == 0) {
+		if (verboseMode > 0 && displayingBuffers()) {
+			fprintf(stderr, "\noutput buffer is empty after processing\n");
+		}
+		// Signal that the buffer is processed.
+		nBufferBytes = 0;
+		continue;
+	}
+
+	if (verboseMode > 0 && displayingBuffers()) {
+		fprintf(stderr, "\nwriting buffer - length %ld\n", outputBuffer->length);
+	}
+
+	for (int i = 0; i < outputBuffer->length; i++) {
+		putc(outputBuffer->content[i], stdout);
+	}
+
+	// Free the output buffer.
+	freeBuffer(outputBuffer);
+	outputBuffer = NULL;
+
+    // Signal that the buffer is processed.
     nBufferBytes = 0;
   }
 

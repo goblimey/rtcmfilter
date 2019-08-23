@@ -18,17 +18,19 @@ typedef struct buffer {
 	size_t length;				// length of the malloc'ed content buffer.
 } Buffer;
 
+extern int displaying();
 extern int displayingBuffers();
 extern int displayingRtcmMessages();
-extern int displayingOtherMessages();
+extern int displayingBuffers();
 extern Buffer * createBuffer(size_t length);
 extern void freeBuffer(Buffer * buffer);
 extern unsigned int getRtcmLength(unsigned char * messageBuffer, unsigned int bufferLength);
-extern unsigned int getFWNN(unsigned char * messageBuffer, unsigned int bufferLength);
+extern unsigned int getCRC(Buffer * buffer);
+extern unsigned int getMessageType(Buffer * buffer);
 extern Buffer * createBuffer(size_t length);
 extern void freeBuffer(Buffer * buffer);
-extern void displayBuffer(Buffer * buffer, int state);
-extern void displayMessage(unsigned char * buffer, unsigned int bufferLength);
+extern void displayBuffer(Buffer * buffer);
+extern void displayRtcmMessage(Buffer * buffer);
 extern Buffer * addMessageFragmentToBuffer(Buffer * buffer, unsigned char * fragment, size_t fragmentLength);
 extern Buffer * getRtcmMessages(Buffer inputBuffer);
 extern unsigned int getbitu(const unsigned char *buff, int pos, int len);
