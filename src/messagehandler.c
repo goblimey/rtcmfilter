@@ -108,6 +108,8 @@ int displaying() {
 }
 
 int displayingBuffers() {
+	fprintf(stderr, "rtcm %d buffers %d",
+			numberOfRtcmMessagesDisplayed, numberOfBuffersDisplayed);
 	if (verboseMode > 0) {
 		// If we have seen any RTCM messages, stop when we've displayed the maximum,
 		// otherwise stp when we've displayed that number of buffers.
@@ -116,6 +118,8 @@ int displayingBuffers() {
 		} else {
 			return numberOfBuffersDisplayed <= MAX_BUFFERS_TO_DISPLAY;
 		}
+	} else {
+		return FALSE;
 	}
 }
 
@@ -142,7 +146,7 @@ void freeBuffer(Buffer * buffer) {
 	free(buffer);
 }
 
-// diaplayBuffer() displays the contents of a buffer and the given buffer processing state.
+// displayBuffer() displays the contents of a buffer and the given buffer processing state.
 void displayBuffer(Buffer * buffer) {
 
 	if (displayingBuffers()) {
