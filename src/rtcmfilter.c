@@ -12,9 +12,9 @@
  * locally also reduces your outgoing network bandwidth requirements.
  *
  * A verbose mode is provided to aid debugging a new installation.  In this
- * mode the filter displays the first 50 RTCM messages and any other messages
- * that appear between them.  To prevent endless output, if no RTCM messages
- * are seen, it displays the first 50 input buffers.
+ * mode the filter displays the first 50 input buffers in hexadecimal, then
+ * displays any RTCM messages and any other messages as plain text.  Since RTCM
+ * messages are binary, it decodes and displays the message type.
  *
  * This program is a hacked version of the BKG NTRIP server, which is
  * distributed here:  https://software.rtcm-ntrip.org/.  That's distributed

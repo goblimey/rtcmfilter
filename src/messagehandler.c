@@ -301,15 +301,16 @@ Buffer * getRtcmDataBlocks(Buffer inputBuffer) {
 	 * buffer which starts exactly at the start of a message, a buffer which is just one large fragment,
 	 * and so on.  Messages may be separated by null bytes and/or line breaks.  A line break may be a
 	 * newline or a Carriage Return Newline sequence (if the sending system is MS Windows).  Each message
-	 * may or may not be RTCM.  If the buffer contains two adjacent RTCM messages, there does not have to be
-	 * any separator between them.
+	 * may or may not be RTCM.  If the buffer contains two adjacent RTCM messages, There SHOULD NOT be a
+	 * newline character between the messages.  This can cause some receiving devices to fall out of sync
+	 * and lose messages.
 	 *
 	 * Each RTCM data block is a stream of bytes with a 24-bit big-endian header, a variable-length embedded
 	 * message and a 24-bit big-endian Cyclic Redundancy Check (CRC) value.  (To avoid confusion between the
 	 * whole stream of data and the embedded message, I call the sequence (header, embedded message, CRC)
-	 * the RTCM data block and uses message to refer to the embedded message.)  The header has 0xd3 in the top
-	 * byte and the bottom ten bits are the message length.  It appears that the other six bits are always
-	 * zero.  For example:
+	 * the RTCM data block and use the term message to refer to the embedded message.)  The header has 0xd3
+	 * n the top byte and the bottom ten bits are the message length.  It appears that the other six bits
+	 * are always zero.  For example:
 	 *
 	 *     D3 00 13 3E D7 D3 02 02 98 0E DE EF 34 B4 BD 62 AC 09 41 98 6F 33 36 0B 98
      *     -header-  1           5             10             15          19 ---CRC--
