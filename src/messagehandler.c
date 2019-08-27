@@ -32,7 +32,6 @@
 
 #include "rtcmfilter.h"
 
-#define MAX_RTCM_MESSAGES_TO_DISPLAY 50
 #define MAX_BUFFERS_TO_DISPLAY 50
 #define LENGTH_OF_HEADER 3
 #define LENGTH_OF_CRC 3
@@ -44,7 +43,6 @@
 extern int verboseMode;
 extern int addNewline;
 
-static int numberOfRtcmMessagesDisplayed = 0;
 static int numberOfBuffersDisplayed = 0;
 static unsigned int state = STATE_EATING_MESSAGES;
 
@@ -56,7 +54,7 @@ unsigned int getRtcmLength(unsigned char * messageBuffer, unsigned int bufferLen
         // The message starts very near the end of the buffer, so we can't calculate
         // the length until we get the next one.
 
-    	if (displaying()) {
+    	if (displayingBuffers()) {
     		fprintf(stderr, "getRtcmLength(): buffer too short to get message length - %d\n",
     				bufferLength);
     	}
@@ -103,28 +101,14 @@ unsigned int getMessageType(Buffer * buffer) {
 	return getbitu(buffer->content, 24, 12);
 }
 
-int displaying() {
-	return verboseMode > 0 && (displayingBuffers() || displayingRtcmMessages);
-}
-
 int displayingBuffers() {
-	fprintf(stderr, "rtcm %d buffers %d",
-			numberOfRtcmMessagesDisplayed, numberOfBuffersDisplayed);
+	int result = FALSE;
 	if (verboseMode > 0) {
-		// If we have seen any RTCM messages, stop when we've displayed the maximum,
-		// otherwise stp when we've displayed that number of buffers.
-		if (numberOfRtcmMessagesDisplayed > 0) {
-			return numberOfRtcmMessagesDisplayed <= MAX_RTCM_MESSAGES_TO_DISPLAY;
-		} else {
-			return numberOfBuffersDisplayed <= MAX_BUFFERS_TO_DISPLAY;
-		}
+		result = numberOfBuffersDisplayed < MAX_BUFFERS_TO_DISPLAY;
+		return result;
 	} else {
 		return FALSE;
 	}
-}
-
-int displayingRtcmMessages() {
-	return (verboseMode > 0 && (numberOfRtcmMessagesDisplayed <= MAX_RTCM_MESSAGES_TO_DISPLAY));
 }
 
 Buffer * createBuffer(size_t length) {
@@ -149,13 +133,19 @@ void freeBuffer(Buffer * buffer) {
 // displayBuffer() displays the contents of a buffer and the given buffer processing state.
 void displayBuffer(Buffer * buffer) {
 
+	if (buffer == NULL) {
+		fprintf(stderr, "displayBuffer(): buffer is NULL\n");
+		return;
+	}
+
+	if (buffer->length == 0) {
+		fprintf(stderr, "displayBuffer(): buffer is empty\n");
+		return;
+	}
+
 	if (displayingBuffers()) {
 
 		numberOfBuffersDisplayed++;
-
-		if (buffer == NULL) {
-			fprintf(stderr, "displayBuffer(): buffer is NULL\n");
-		}
 
 		switch (state) {
 		case STATE_EATING_MESSAGES:
@@ -205,20 +195,20 @@ void displayBuffer(Buffer * buffer) {
 // Display the RTCM message.
 void displayRtcmMessage(Buffer * buffer) {
 
-	if (displayingRtcmMessages()) {
+	if (buffer == NULL) {
+		return;
+	}
+	if (buffer->length == 0) {
+		return;
+	}
 
-		if (buffer == NULL) {
-			return;
-		}
-		if (buffer->length == 0) {
-			return;
-		}
+	if (buffer->content == NULL) {
+		return;
+	}
 
-		if (buffer->content == NULL) {
-			return;
-		}
+	if (displayingBuffers()) {
 
-		numberOfRtcmMessagesDisplayed++;
+		numberOfBuffersDisplayed++;
 
 		unsigned int messageLength = getRtcmLength(buffer->content, buffer->length);
 
@@ -278,9 +268,9 @@ Buffer * addMessageFragmentToBuffer(Buffer * buffer, unsigned char * fragment, s
 	return buffer;
 }
 
-// Given a Buffer containing messages and message fragments, extract any RTCM messages or
-// fragments of RTCM messages and return a Buffer containing just them.
-Buffer * getRtcmMessages(Buffer inputBuffer) {
+// Given a Buffer containing messages and message fragments, extract any RTCM data blocks or
+// fragments of them and return a Buffer containing just those data.
+Buffer * getRtcmDataBlocks(Buffer inputBuffer) {
 	static Buffer * rtcmMessageBuffer = NULL;	// Used to build a complete buffer for display.
 	static size_t rtcmBufferLength = 0;			// length of the allocated RTCM buffer.
 	static size_t totalRtcmMessageLength = 0;	// length of leader, message and CRC.
@@ -303,58 +293,65 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 	}
 
 	/*
-	 * getRtcmMessages() returns a buffer containing RTCM messages.  The input is a Buffer containing
-	 * messages and fragments of messages of many types.  The input buffer is fixed length so it's
-	 * typically a fragment which is the end of a message started in an earlier buffer, a string of
-	 * complete messages and a fragment which is the start of a message to be continued in the next
-	 * buffer(s).  Variations on that include a buffer which starts with the start of a message, a buffer
-	 * which is just one fragment, and so on.  Messages may be separated by null bytes and/or line breaks.
-	 * A line break may be a newline or a Carriage Return Newline sequence (if the sending system is MS
-	 * Windows).  A message may or may not be RTCM. If the buffer contains two adjacent RTCM messages,
-	 * there does not have to be any separator between them.
+	 * getRtcmDataBlocks() takes a buffer containing satellite navigation messages of all sorts and
+	 * returns a buffer containing only RTCM messages.  Data is read from a satnav device in real time
+	 * with a timeout specified and using a bounded buffer.  The resulting input buffer typically contains
+	 * a fragment of a message that is continued from the previous buffer, a series of complete messages
+	 * and a fragment of a message that is continued in the next buffer.  Variations on that include a
+	 * buffer which starts exactly at the start of a message, a buffer which is just one large fragment,
+	 * and so on.  Messages may be separated by null bytes and/or line breaks.  A line break may be a
+	 * newline or a Carriage Return Newline sequence (if the sending system is MS Windows).  Each message
+	 * may or may not be RTCM.  If the buffer contains two adjacent RTCM messages, there does not have to be
+	 * any separator between them.
 	 *
-	 * The method takes the input buffer, scans it for RTCM messages, copies those to the output buffer
-	 * and discards anything else.  Since messages can span many buffers, some state must be preserved
-	 * between input buffers.
-	 *
-	 * The design assumes that the output buffer is longer than the input buffer, so it should never
-	 * overflow.
-	 *
-	 * An RTCM message is a stream of bytes with a 24-bit big-endian header, a variable-length message
-	 * and a 24-bit big-endian Cyclic Redundancy Check (CRC) value.  The header has 0xd3 at the top,
-	 * and the bottom ten bits are the message length.  The purpose of the other six bits (the "Field
-	 * With No Name") is currently unknown to me.  For example:
+	 * Each RTCM data block is a stream of bytes with a 24-bit big-endian header, a variable-length embedded
+	 * message and a 24-bit big-endian Cyclic Redundancy Check (CRC) value.  (To avoid confusion between the
+	 * whole stream of data and the embedded message, I call the sequence (header, embedded message, CRC)
+	 * the RTCM data block and uses message to refer to the embedded message.)  The header has 0xd3 in the top
+	 * byte and the bottom ten bits are the message length.  It appears that the other six bits are always
+	 * zero.  For example:
 	 *
 	 *     D3 00 13 3E D7 D3 02 02 98 0E DE EF 34 B4 BD 62 AC 09 41 98 6F 33 36 0B 98
      *     -header-  1           5             10             15          19 ---CRC--
      *
-     * The message contents is binary and in this case it happens to contain another D3 byte.
-     *
-     * That example comes from  https://portal.u-blox.com/s/question/0D52p00008HKDWQCA5/decoding-rtcm3-message
+     * The message contents is binary, actually a string of bits with fields of various sizes.  In this
+     * example the message happens to contain another D3 byte.  The example comes from
+     * https://portal.u-blox.com/s/question/0D52p00008HKDWQCA5/decoding-rtcm3-message
      * and that posting also refers to a longer message.
      *
-     * The format of the RTCM messages is defined in a standard.  It's not open-source and I haven't
-     * bought a copy.  The messages contain information such as the positions of satellites.  There are
-     * several numbered message types, so the first part of the message is probably the type number,
-     * but I have no idea of the format.  There may be some clues in the open-source library RTKLIB,
-     * but I haven't looked at that yet.
+     * Having the message length specified in the message and given that an RTCM block can be spread over many
+     * input buffers, there's an edge case where the buffer contains just the first one or two bytes of an
+     * RTCM block, say 0xD3 0x00.  That's not enough to figure out the message length.  The filter needs to write
+     * those data but remember them until the next block arrives so that it can make sense of the start of that.
+     *
+     * The format of the message embedded in the RTCM data block are defined in a standard.  It's not open-source
+     * and I haven't bought a copy.  There are several numbered message types.  Each messages type has a
+     * different format, but the format of the first few bits is common to all.  For example The first 12 bits
+     * of the embedded message gives the message type.  The open source library RTKLIB has methods to decode the
+     * various messages, so the format can be gleaned by reading that source code.
+     *
+     * This method takes the input buffer, scans it for RTCM data blocks, copies those to the output buffer
+	 * and discards anything else.  Since messages can span many buffers, some state must be preserved
+	 * between input buffers.
 	 *
-	 * The tool reads a stream of messages in non-blocking mode using a bounded input buffer, so
-	 * typically it contains a fragment of a message, which continues the last message from the last buffer,
-	 * followed by a list of complete messages, followed by another fragment which is continued in the next
-	 * buffer.
+	 * The output buffer is built up on the fly using malloc() and realloc().  Since it only ever contains some or
+	 * all of the messages in the input buffer, and the length of that is bounded, the output buffer is bounded
+	 * automatically.
 	 *
-	 * To keep track of state between buffers there is a state machine with three states representing:
-	 * not processing an RTCM message; processing the start (possibly all) of an RTCM message; processing
-	 * the continuation of an RTCM message.  There are also static variables to track how much of a message
+	 * To keep track of state between input buffers there is a state machine with states representing:
+	 * not processing an RTCM message (discarding whatever it sees); processing the start (possibly all) of an RTCM
+	 * data block; processing the continuation of an RTCM data block of unknown length, processing the continuation
+	 * of an RTCM data block of known length.  State data includes static variables to track how much of a message
 	 * that spans many buffers has already been processed.
 	 *
-	 * Some messages (including RTCM) are binary so the buffer may contain several null bytes, which
-     * means (a) you can't treat the buffer as a simple string and (b) messages may contain what look
-     * like newlines or 0xd3, but which are just part of the data.  Also, in a noisy environment we may
-     * have to assume that characters could be dropped.  To guard against all this, the function should
-     * check the CRC and ignore any messages that are badly formatted, but at present it doesn't.  The
-     * destination caster should have some error checking of its own, so this should not be catastrophic.
+	 * In verbose mode, the filter displays the first few input buffers and any RTCM messages in those buffers.
+	 *
+	 * Some messages (including RTCM) are binary so the buffer may contain several null bytes, which means
+     * (a) you can't treat the buffer as a simple C string and (b) messages may contain what look like newlines or
+     * RTCM headers, but which are just part of the data.  Also, in a noisy environment we should assume that
+     * characters could be dropped.  To guard against all this, the function should check the CRC (using the code
+     * from RTKLIB) and ignore any messages that are badly formatted, but at present it doesn't.  The destination
+     * caster should have some error checking of its own, so letting some junk through should not be catastrophic.
 	 */
 
 	while (i < inputBuffer.length) {
@@ -365,19 +362,19 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 		if (state == STATE_EATING_MESSAGES) {
 			// Process messages which are not RTCM by ignoring them.  If we see the start of an
 			// RTCM message, stop eating.
-			if (displaying() && i == 0 && inputBuffer.content[i] != 0xd3) {
+			if (displayingBuffers() && i == 0 && inputBuffer.content[i] != 0xd3) {
 				fprintf(stderr, "\neating messages from position 0\n");
 			}
 			if (inputBuffer.content[i] == 0xd3) {
 				// Stop eating and process the RTCM message.
-				if (displaying()) {
+				if (displayingBuffers()) {
 					fprintf(stderr, "\nFound RTCM message, stop eating - position %d\n", i);
 				}
 				state = STATE_PROCESSING_START_OF_RTCM_MESSAGE;
 				continue;
 			} else {
 				// Eat.
-				if (displaying()) {
+				if (displayingBuffers()) {
 					putc(inputBuffer.content[i], stderr);
 				}
 				i++;
@@ -394,8 +391,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 			if (headerBuffer.content == NULL) {
 				// continuation with no start.  Should never happen.
 				fprintf(stderr, "warning: processing continuation of message, but without a start - should never happen -  buffer position %d\n", i);
-				i++;
-				if (displaying()) {
+				if(displayingBuffers()) {
 					fprintf(stderr, "\neating messages from position %d\n", i);
 				}
 				state = STATE_EATING_MESSAGES;
@@ -406,7 +402,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 				fprintf(stderr,
 						"warning: processing continuation of message, but this should only happen at the start of a buffer - i=%d\n", i);
 				i++;
-				if (displaying()) {
+				if (displayingBuffers()) {
 					fprintf(stderr, "\neating messages from position %d\n", i);
 				}
 				state = STATE_EATING_MESSAGES;
@@ -414,7 +410,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 			}
 
 			// This buffer starts with the continuation of an RTCM message.
-			if (displayingRtcmMessages()) {
+			if (displayingBuffers()) {
 				if (state == STATE_PROCESSING_CONTINUATION_OF_RTCM_MESSAGE) {
 					fprintf(stderr, "\nprocessing continuation of RTCM message\n");
 				} else {
@@ -427,21 +423,21 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 				// of the message length values are in the current buffer, so we can only get it
 				// now.  Copy two characters from the input to the header buffer, which is enough
 				// to complete it, then carry on as normal.
-				if (displayingRtcmMessages()) {
+				if (displayingBuffers()) {
 					fprintf(stderr, "finding length of RTCM message from the continuation\n");
 				}
 				headerBuffer.content[headerBuffer.length-1] = inputBuffer.content[0];
 				headerBuffer.content[headerBuffer.length] = inputBuffer.content[1];
 				headerBuffer.length += 2;
 				size_t rtcmMessageLength = getRtcmLength(headerBuffer.content, headerBuffer.length);
-				if (displayingRtcmMessages()) {
+				if (displayingBuffers()) {
 					fprintf(stderr, "\nGot the message length - %ld - switching to state processing continuation of RTCM message\n",
 							rtcmMessageLength);
 				}
 				outputBuffer = addMessageFragmentToBuffer(outputBuffer, inputBuffer.content, (size_t)2);
 				// The total message is Leader, message, CRC.
 				totalRtcmMessageLength = rtcmMessageLength + LENGTH_OF_HEADER + LENGTH_OF_CRC;
-				if (displayingRtcmMessages()) {
+				if (displayingBuffers()) {
 					rtcmMessageBuffer = addMessageFragmentToBuffer(rtcmMessageBuffer, inputBuffer.content, (size_t)2);
 				}
 
@@ -462,7 +458,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 			// have consumed the first couple of characters in the buffer, then adjusted
 			// the references.
 
-			if (displayingRtcmMessages()) {
+			if (displayingBuffers()) {
 				fprintf(stderr, "\ntotal message length %ld, sent so far %ld\n",
 						totalRtcmMessageLength, rtcmMessageBytesSent);
 			}
@@ -471,12 +467,12 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 			if (messageRemaining > inputBuffer.length) {
 				// The whole of the buffer is part of a long RTCM message and there is
 				// more of the message to come in another buffer.  Send the whole buffer.
-				if (displayingRtcmMessages()) {
+				if (displayingBuffers()) {
 					fprintf(stderr, "the continuation buffer does not complete the RTCM message\n");
 				}
 				outputBuffer = addMessageFragmentToBuffer(outputBuffer, inputBuffer.content, inputBuffer.length);
 				rtcmMessageBytesSent += inputBuffer.length;
-				if (displayingRtcmMessages()) {
+				if (displayingBuffers()) {
 					rtcmMessageBuffer = addMessageFragmentToBuffer(rtcmMessageBuffer, inputBuffer.content, inputBuffer.length);
 				}
 				// Finished processing the input buffer.  Still in continuation state.
@@ -487,7 +483,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 				// it (if in verbose mode) and continue scanning.
 
 				outputBuffer = addMessageFragmentToBuffer(outputBuffer, inputBuffer.content, messageRemaining);
-				if (displayingRtcmMessages()) {
+				if (displayingBuffers()) {
 					rtcmMessageBuffer = addMessageFragmentToBuffer(rtcmMessageBuffer, inputBuffer.content, messageRemaining);
 				}
 
@@ -497,13 +493,13 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 				}
 
 				// The message is assembled and ready for display (if verbose mode).
-				if (displayingRtcmMessages()) {
+				if (displayingBuffers()) {
 					fprintf(stderr, "displaying message\n");
 					displayRtcmMessage(rtcmMessageBuffer);
 				}
 				// now process the other messages in the buffer.
 				i += messageRemaining;
-				if (displaying()) {
+				if (displayingBuffers()) {
 					fprintf(stderr, "\neating messages from position %d\n", i);
 				}
 				rtcmMessageBytesSent = 0;	// Reset ready for the next trip.
@@ -521,7 +517,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 			//     three-byte CRC,
 			// So the total message is (length+6) bytes long.
 
-			if (displayingRtcmMessages()) {
+			if (displayingBuffers()) {
 				fprintf(stderr, "processing RTCM message - position %d\n", i);
 			}
 
@@ -534,7 +530,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 			unsigned char * remainingBuffer = inputBuffer.content + i;
 			size_t lengthOfRemainingBuffer = inputBuffer.length - i;
 			size_t rtcmMessageLength = getRtcmLength(remainingBuffer, lengthOfRemainingBuffer);
-			if (displayingRtcmMessages()) {
+			if (displayingBuffers()) {
 				fprintf(stderr, "\nFound RTCM message - position %d given message length %ld\n",
 						i, rtcmMessageLength);
 			}
@@ -545,7 +541,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 				if ((totalRtcmMessageLength) <= lengthOfRemainingBuffer) {
 					// The whole message is contained in this input buffer.  Copy it to the
 					// output buffer.
-					if (displayingRtcmMessages()) {
+					if (displayingBuffers()) {
 						fprintf(stderr, "processing complete RTCM message - position %d message length %ld\n",
 								i, totalRtcmMessageLength);
 					}
@@ -558,7 +554,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 						outputBuffer = addMessageFragmentToBuffer(outputBuffer, "\n", 1);
 					}
 
-					if (displayingRtcmMessages()) {
+					if (displayingBuffers()) {
 						freeBuffer(rtcmMessageBuffer);	// To avoid any memory leak.
 						rtcmMessageBuffer = NULL;
 						rtcmMessageBuffer = addMessageFragmentToBuffer(rtcmMessageBuffer,
@@ -571,7 +567,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 					totalRtcmMessageLength = 0;	// Reset ready for the next trip.
 					rtcmMessageBytesSent = 0;	// Reset ready for the next trip.
 					state = STATE_EATING_MESSAGES;
-					if (displayingRtcmMessages()) {
+					if (displayingBuffers()) {
 						fprintf(stderr, "\nRTCM message processed.  Eating messages from position %d\n", i);
 					}
 					continue;
@@ -581,7 +577,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 					// in the next buffer.  Copy what we have.
 					outputBuffer = addMessageFragmentToBuffer(outputBuffer, remainingBuffer, lengthOfRemainingBuffer);
 					rtcmMessageBytesSent = lengthOfRemainingBuffer;
-					if (displayingRtcmMessages()) {
+					if (displayingBuffers()) {
 						fprintf(stderr, "processing start of long RTCM message - position %d message length %ld got the first %ld bytes\n",
 								i, totalRtcmMessageLength, lengthOfRemainingBuffer);
 						freeBuffer(rtcmMessageBuffer);	// Avoid any memory leak.
@@ -600,7 +596,7 @@ Buffer * getRtcmMessages(Buffer inputBuffer) {
 				// to be used in the next call.
 				outputBuffer = addMessageFragmentToBuffer(outputBuffer, remainingBuffer, lengthOfRemainingBuffer);
 				rtcmMessageBytesSent = lengthOfRemainingBuffer;
-				if (displayingRtcmMessages()) {
+				if (displayingBuffers()) {
 					fprintf(stderr, "processing start of long message with incomplete length value - position %d buffer length %ld\n",
 							i, inputBuffer.length);
 					freeBuffer(rtcmMessageBuffer);	// Avoid any memory leak.

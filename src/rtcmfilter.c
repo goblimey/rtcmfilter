@@ -969,10 +969,10 @@ static void send_receive_loop()
     inputBuffer.content = buffer;
     inputBuffer.length = nBufferBytes;
 
-    if (displaying()) {
+    if (displayingBuffers) {
     	displayBuffer(&inputBuffer);
     }
-    Buffer * outputBuffer = getRtcmMessages(inputBuffer);
+    Buffer * outputBuffer = getRtcmDataBlocks(inputBuffer);
 
     // If the input buffer contains any RTCM messages (complete or fragments) write it to stdout.
     if (outputBuffer == NULL) {

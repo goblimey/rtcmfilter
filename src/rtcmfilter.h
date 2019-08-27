@@ -18,9 +18,6 @@ typedef struct buffer {
 	size_t length;				// length of the malloc'ed content buffer.
 } Buffer;
 
-extern int displaying();
-extern int displayingBuffers();
-extern int displayingRtcmMessages();
 extern int displayingBuffers();
 extern Buffer * createBuffer(size_t length);
 extern void freeBuffer(Buffer * buffer);
@@ -32,7 +29,7 @@ extern void freeBuffer(Buffer * buffer);
 extern void displayBuffer(Buffer * buffer);
 extern void displayRtcmMessage(Buffer * buffer);
 extern Buffer * addMessageFragmentToBuffer(Buffer * buffer, unsigned char * fragment, size_t fragmentLength);
-extern Buffer * getRtcmMessages(Buffer inputBuffer);
+extern Buffer * getRtcmDataBlocks(Buffer inputBuffer);
 extern unsigned int getbitu(const unsigned char *buff, int pos, int len);
 
 #endif /* SRC_RTCMFILTER_H_ */
