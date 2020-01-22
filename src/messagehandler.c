@@ -54,6 +54,7 @@ static unsigned long int type1097MessagesSoFar = 0;
 static unsigned long int type1094MessagesSoFar = 0;
 static unsigned long int type1124MessagesSoFar = 0;
 static unsigned long int type1127MessagesSoFar = 0;
+static unsigned long int type1230MessagesSoFar = 0;
 static unsigned long int unexpectedMessagesSoFar = 0;
 
 // Get the length of the RTCM message.  The three bytes of the header form a big-endian
@@ -231,6 +232,7 @@ void resetTotals() {
 	type1094MessagesSoFar = 0;
 	type1124MessagesSoFar = 0;
 	type1127MessagesSoFar = 0;
+	type1230MessagesSoFar = 0;
 	unexpectedMessagesSoFar = 0;
 }
 
@@ -242,7 +244,7 @@ void displayTotals() {
 	sprintf(timeStr, "%04d/%02d/%02d %02d:%02d:%02d",
 			tm->tm_year+1900, tm->tm_mon+1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
 
-	fprintf(stderr, "%s %ld messages so far: %ld 1005 %ld 1074 %ld 1084 %ld 1094 %ld 1097 %ld 1124 %ld 1127 %ld unexpected\n",
+	fprintf(stderr, "%s %ld messages so far: %ld 1005 %ld 1074 %ld 1084 %ld 1094 %ld 1097 %ld 1124 %ld 1127 %ld 1230 %ld unexpected\n",
 		timeStr,
 		rtcmMessagesSoFar,
 		type1005MessagesSoFar,
@@ -252,6 +254,7 @@ void displayTotals() {
 		type1097MessagesSoFar,
 		type1124MessagesSoFar,
 		type1127MessagesSoFar,
+		type1230MessagesSoFar,
 		unexpectedMessagesSoFar);
 }
 
@@ -578,6 +581,9 @@ Buffer * getRtcmDataBlocks(Buffer inputBuffer, rtcm_t * rtcm) {
 					break;
 				case 1127:
 					type1127MessagesSoFar++;
+					break;
+				case 1230:
+					type1230MessagesSoFar++;
 					break;
 				default:
 					unexpectedMessagesSoFar++;

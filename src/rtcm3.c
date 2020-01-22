@@ -1840,8 +1840,6 @@ static int decode_msm4(rtcm_t *rtcm, int sys)
     /* decode msm header */
     if ((ncell=decode_msm_head(rtcm,sys,&sync,&iod,&h,&i))<0) return -1;
     
-    fprintf(stderr, "decode_msm4 sync = %d\n", sync);
-
     if (i+h.nsat*18+ncell*48>rtcm->len*8) {
         trace(2,"rtcm3 %d length error: nsat=%d ncell=%d len=%d\n",type,h.nsat,
               ncell,rtcm->len);
@@ -1881,7 +1879,6 @@ static int decode_msm4(rtcm_t *rtcm, int sys)
     save_msm_obs(rtcm,sys,&h,r,pr,cp,NULL,NULL,cnr,lock,NULL,half);
     
     rtcm->obsflag=!sync;
-    fprintf(stderr, "decode_msm4 sync %d returning %d\n", sync, sync?0:1);
     return sync?0:1;
 }
 /* decode msm 5: full pseudorange, phaserange, phaserangerate and cnr --------*/
