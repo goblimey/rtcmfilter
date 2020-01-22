@@ -12,9 +12,9 @@
  * locally also reduces your outgoing network bandwidth requirements.
  *
  * A verbose mode is provided to aid debugging a new installation.  In this
- * mode the filter displays the first 50 input buffers in hexadecimal, then
- * displays any RTCM messages and any other messages as plain text.  Since RTCM
- * messages are binary, it decodes and displays the message type.
+ * mode the filter displays the first 50 RTCM messages and any other messages
+ * that appear between them.  To prevent endless output, if no RTCM messages
+ * are seen, it displays the first 50 input buffers.
  *
  * This program is a hacked version of the BKG NTRIP server, which is
  * distributed here:  https://software.rtcm-ntrip.org/.  That's distributed
@@ -73,6 +73,9 @@ static char datestr[]     = "$Date: 2010/01/21 09:00:49 $";
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
+#ifndef RTKLIB_H
+#include "rtklib.h"
+#endif
 
 #ifdef WINDOWSVERSION
   #include <winsock2.h>
@@ -101,7 +104,7 @@ static char datestr[]     = "$Date: 2010/01/21 09:00:49 $";
 #define COMPILEDATE " built " __DATE__
 #endif
 
-#define ALARMTIME (2*60)	/* timeout after 2 minutes */
+// #define ALARMTIME (2*60)	/* timeout after 2 minutes */
 
 #ifndef MSG_DONTWAIT
 #define MSG_DONTWAIT 0 /* prevent compiler errors */
@@ -116,7 +119,9 @@ CASTER = 6, LAST };
 enum OUTMODE { HTTP = 1, RTSP = 2, NTRIP1 = 3, UDP = 4, END };
 
 #define AGENTSTRING     "NTRIP NtripServerPOSIX"
+// BUFSZ must be at least 136.
 #define BUFSZ           1024
+// #define BUFSZ           136
 #define DEFAULTOUTBUFSZ 2048
 #define SZ              64
 
@@ -134,7 +139,7 @@ enum OUTMODE { HTTP = 1, RTSP = 2, NTRIP1 = 3, UDP = 4, END };
 #define RTP_VERSION     2
 #define TIME_RESOLUTION 125
 
-int verboseMode                = 0;
+int verboseMode                = 0;	// 0 no logging, >=1 logging.
 int addNewline                 = FALSE;
 
 static int ttybaud             = 19200;
@@ -164,7 +169,7 @@ static int udp_cseq            = 1;
 static int inputFromFile = FALSE;
 
 /* Forward references */
-static void send_receive_loop();
+static void send_receive_loop(rtcm_t * rtcm);
 static void usage(int, char *);
 static int  encode(char *buf, int size, const char *user, const char *pwd);
 static int  send_to_caster(char *input, sockettype socket, int input_size);
@@ -181,6 +186,10 @@ static void handle_alarm(int sig);
 static HANDLE openserial(const char * tty, int baud);
 #endif
 
+// Log RTCM messages to a file for post processing ...
+int log_rtcm = FALSE;
+// ... using this channel.
+int datafd;
 
 /*
 * main
@@ -204,10 +213,10 @@ int main(int argc, char **argv)
   int                c;
   int                size = DEFAULTOUTBUFSZ; /* for setting send buffer size */
   struct             sockaddr_in caster;
-  const char *       proxyhost = "";
-  unsigned int       proxyport = 0;
+
+
   /*** INPUT ***/
-  const char *       casterinhost = 0;
+
   unsigned int       casterinport = 0;
   const char *       inhost = 0;
   unsigned int       inport = 0;
@@ -229,35 +238,8 @@ int main(int argc, char **argv)
   const char *       initfile = NULL;
 
   int                bindmode = 0;
-
-  /*** OUTPUT ***/
-  unsigned int       casteroutport = NTRIP_PORT;
-  const char *       outhost = 0;
-  unsigned int       outport = 0;
-  char               post_extension[SZ] = "";
-
-  const char *       ntrip_str = "";
-
-  const char *       user = "";
-  const char *       password = "";
-
-  int                outputmode = NTRIP1;
-
-  struct sockaddr_in casterRTP;
-  struct sockaddr_in local;
-  int                client_port = 0;
-  int                server_port = 0;
-  unsigned int       session = 0;
-  socklen_t          len = 0;
-  int                i = 0;
-
   char               szSendBuffer[BUFSZ];
-  char               authorization[SZ];
   int                nBufferBytes = 0;
-  char *             dlim = " \r\n=";
-  char *             token;
-  char *             tok_buf[BUFSZ];
-
   int                reconnect_sec_max = 0;
 
   setbuf(stdout, 0);
@@ -267,6 +249,7 @@ int main(int argc, char **argv)
   {
   char *a;
   int i = 0;
+
   for(a = revisionstr+11; *a && *a != ' '; ++a)
     revisionstr[i++] = *a;
   revisionstr[i] = 0;
@@ -288,8 +271,8 @@ int main(int argc, char **argv)
   /* setup signal handler for boken pipe */
   setup_signal_handler(SIGPIPE, handle_sigpipe);
   /* setup signal handler for timeout */
-  setup_signal_handler(SIGALRM, handle_alarm);
-  alarm(ALARMTIME);
+  // setup_signal_handler(SIGALRM, handle_alarm);
+  // alarm(ALARMTIME);
 #else
   /* winsock initialization */
   WSADATA wsaData;
@@ -376,8 +359,8 @@ int main(int argc, char **argv)
     case 'l': /* Sisnet data server password */
       sisnetpassword = optarg;
       break;
-    case 'H': /* Input host address*/
-      casterinhost = optarg;
+
+
       break;
     case 'P': /* Input port */
       casterinport = atoi(optarg);
@@ -398,10 +381,12 @@ int main(int argc, char **argv)
      stream_password = optarg;
      break;
     case 'E': /* Proxy Server */
-      proxyhost = optarg;
+
       break;
     case 'F': /* Proxy port */
-      proxyport = atoi(optarg);
+
+
+
       break;
     case 'R':  /* maximum delay between reconnect attempts in seconds */
        reconnect_sec_max = atoi(optarg);
@@ -465,7 +450,7 @@ int main(int argc, char **argv)
           fcntl(gps_file, F_SETFL, 0);
 #endif
           if (verboseMode) {
-            printf("file input: file = %s\n", filepath);
+            fprintf(stderr, "file input: file = %s\n", filepath);
           }
     	}
       }
@@ -479,7 +464,7 @@ int main(int argc, char **argv)
 #endif
         if(gps_serial == INVALID_HANDLE_VALUE) exit(1);
         if (verboseMode) {
-          printf("serial input: device = %s, speed = %d\n", ttyport, ttybaud);
+          fprintf(stderr, "serial input: device = %s, speed = %d\n", ttyport, ttybaud);
         }
         if(initfile)
         {
@@ -803,10 +788,15 @@ int main(int argc, char **argv)
       break;
     }
 
-    /* ----- main part ----- */
-    int output_init = TRUE, fallback = FALSE;
+    // Initialise the RTK library
 
-    send_receive_loop();
+    rtcm_t * rtcm = malloc(sizeof(rtcm_t));
+    init_rtcm(rtcm);
+
+    /* ----- main part ----- */
+    int fallback = FALSE;
+
+    send_receive_loop(rtcm);
 
     exit(0);
 
@@ -818,7 +808,7 @@ int main(int argc, char **argv)
       if((sigalarm_received) || (sigint_received)) break;
 #endif
 
-      send_receive_loop();
+      send_receive_loop(rtcm);
     }
     if( (reconnect_sec_max || fallback) && !sigint_received )
       reconnect_sec = reconnect(reconnect_sec, reconnect_sec_max);
@@ -829,19 +819,19 @@ int main(int argc, char **argv)
 
 
 
-static void send_receive_loop()
+static void send_receive_loop(rtcm_t * rtcm)
 {
   int      nodata = FALSE;
-  char     buffer[BUFSZ] = { 0 };
+  unsigned char buffer[BUFSZ] = { 0 };
   char     sisnetbackbuffer[200];
-  char     szSendBuffer[BUFSZ] = "";
+
   int      nBufferBytes = 0;
 
-   /* RTSP / RTP Mode */
-  int      isfirstpacket = 1;
-  struct   timeval now;
-  struct   timeval last = {0,0};
-  long int sendtimediff;
+
+
+
+
+
 
   /* data transmission */
   fprintf(stderr,"transfering data ...\n");
@@ -855,6 +845,7 @@ static void send_receive_loop()
   while(TRUE)
   {
     if(send_recv_success < 3) send_recv_success++;
+    /*
     if(!nodata)
     {
 #ifndef WINDOWSVERSION
@@ -875,6 +866,8 @@ static void send_receive_loop()
       }
 #endif
     }
+    */
+
     /* signal handling*/
 #ifdef WINDOWSVERSION
     if((sigalarm_received) || (sigint_received)) break;
@@ -972,7 +965,7 @@ static void send_receive_loop()
     if (displayingBuffers) {
     	displayBuffer(&inputBuffer);
     }
-    Buffer * outputBuffer = getRtcmDataBlocks(inputBuffer);
+    Buffer * outputBuffer = getRtcmDataBlocks(inputBuffer, rtcm);
 
     // If the input buffer contains any RTCM messages (complete or fragments) write it to stdout.
     if (outputBuffer == NULL) {
@@ -993,10 +986,18 @@ static void send_receive_loop()
 		continue;
 	}
 
+        if (log_rtcm) {
+            // Log messages for post processing.
+            write(datafd, outputBuffer->content, outputBuffer->length);
+        }
+
 	if (verboseMode > 0 && displayingBuffers()) {
 		fprintf(stderr, "\nwriting buffer - length %ld\n", outputBuffer->length);
 	}
 
+        /*
+        write(stdout, outputBuffer->content, outputBuffer->length);
+        */
 	for (int i = 0; i < outputBuffer->length; i++) {
 		putc(outputBuffer->content[i], stdout);
 	}
@@ -1207,6 +1208,7 @@ void usage(int rc, char *name)
   fprintf(stderr, "OPTIONS\n");
   fprintf(stderr, "   -h|? print this help screen\n\n");
   fprintf(stderr, "   -v verbose mode\n\n");
+  fprintf(stderr, "   -o create log of messages\n\n");
   fprintf(stderr, "   -n add newline after every message - useful during testing, but could confuse the caster if used in production.\n\n");
   fprintf(stderr, "    -E <ProxyHost>       Proxy server host name or address, required i.e. when\n");
   fprintf(stderr, "                         running the program in a proxy server protected LAN,\n");
@@ -1272,16 +1274,17 @@ static void handle_sigint(int sig)
   fprintf(stderr, "WARNING: SIGINT received - ntripserver terminates\n");
 }
 
+
 #ifndef WINDOWSVERSION
-#ifdef __GNUC__
-static void handle_alarm(int sig __attribute__((__unused__)))
-#else /* __GNUC__ */
-static void handle_alarm(int sig)
-#endif /* __GNUC__ */
-{
-  sigalarm_received = 1;
-  fprintf(stderr, "ERROR: more than %d seconds no activity\n", ALARMTIME);
-}
+//#ifdef __GNUC__
+//static void handle_alarm(int sig __attribute__((__unused__)))
+//#else /* __GNUC__ */
+//static void handle_alarm(int sig)
+//#endif /* __GNUC__ */
+//{
+//  sigalarm_received = 1;
+//  fprintf(stderr, "ERROR: more than %d seconds no activity\n", ALARMTIME);
+//}
 
 #ifdef __GNUC__
 static void handle_sigpipe(int sig __attribute__((__unused__)))

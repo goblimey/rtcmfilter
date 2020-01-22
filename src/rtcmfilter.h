@@ -8,6 +8,10 @@
 #ifndef SRC_RTCMFILTER_H_
 #define SRC_RTCMFILTER_H_
 
+#ifndef RTKLIB_H
+#include "rtklib.h"
+#endif
+
 #ifndef TRUE
 #define TRUE -1
 #define FALSE 0
@@ -23,13 +27,12 @@ extern Buffer * createBuffer(size_t length);
 extern void freeBuffer(Buffer * buffer);
 extern unsigned int getRtcmLength(unsigned char * messageBuffer, unsigned int bufferLength);
 extern unsigned int getCRC(Buffer * buffer);
-extern unsigned int getMessageType(Buffer * buffer);
+extern unsigned int getMessageType(rtcm_t * rtcm);
 extern Buffer * createBuffer(size_t length);
 extern void freeBuffer(Buffer * buffer);
 extern void displayBuffer(Buffer * buffer);
-extern void displayRtcmMessage(Buffer * buffer);
+extern void displayRtcmMessage(rtcm_t * rtcm);
 extern Buffer * addMessageFragmentToBuffer(Buffer * buffer, unsigned char * fragment, size_t fragmentLength);
-extern Buffer * getRtcmDataBlocks(Buffer inputBuffer);
-extern unsigned int getbitu(const unsigned char *buff, int pos, int len);
+extern Buffer * getRtcmDataBlocks(Buffer inputBuffer, rtcm_t * rtcm);
 
 #endif /* SRC_RTCMFILTER_H_ */

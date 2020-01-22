@@ -10,6 +10,8 @@ OBJS = rtcmfilter.o
 #	$(error Build mode $(BUILD_MODE) not supported by this Makefile)
 #endif
 
+CFLAGS += -g
+
 all:
 	$(MAKE) -C $(PROJECT_ROOT)/src all
 
