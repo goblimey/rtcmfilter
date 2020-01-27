@@ -47,6 +47,7 @@ static int numberOfBuffersDisplayed = 0;
 
 // Message counts.
 static unsigned long int rtcmMessagesSoFar = 0;
+static unsigned long int illegalMessagesSoFar = 0;
 static unsigned long int type1005MessagesSoFar = 0;
 static unsigned long int type1074MessagesSoFar = 0;
 static unsigned long int type1084MessagesSoFar = 0;
@@ -225,6 +226,7 @@ void displayRtcmMessage(rtcm_t * rtcm) {
 
 void resetTotals() {
 	rtcmMessagesSoFar = 0;
+	illegalMessagesSoFar = 0;
 	type1005MessagesSoFar = 0;
 	type1074MessagesSoFar = 0;
 	type1084MessagesSoFar = 0;
@@ -244,7 +246,7 @@ void displayTotals() {
 	sprintf(timeStr, "%04d/%02d/%02d %02d:%02d:%02d",
 			tm->tm_year+1900, tm->tm_mon+1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
 
-	fprintf(stderr, "%s %ld messages so far: %ld 1005 %ld 1074 %ld 1084 %ld 1094 %ld 1097 %ld 1124 %ld 1127 %ld 1230 %ld unexpected\n",
+	fprintf(stderr, "%s %ld messages, %ld failures,: %ld 1005, %ld 1074, %ld 1084, %ld 1094, %ld 1097, %ld 1124, %ld 1127, %ld 1230, %ld unexpected.\n",
 		timeStr,
 		rtcmMessagesSoFar,
 		type1005MessagesSoFar,
@@ -534,7 +536,8 @@ Buffer * getRtcmDataBlocks(Buffer inputBuffer, rtcm_t * rtcm) {
 			rtcm->len = rtcmMessageLength + LENGTH_OF_HEADER;
 			int messageStatus = input_rtcm3(rtcm, rtcm_header_byte);
 			if (messageStatus < 0) {
-				// The message is not legal.  Start eating.
+				// The message is not legal.  Log it and start eating.
+				illegalMessagesSoFar++;
 				if (displayingBuffers()) {
 					switch (messageStatus) {
 					case -2:
