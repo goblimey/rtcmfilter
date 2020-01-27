@@ -625,7 +625,7 @@ Buffer * getRtcmDataBlocks(Buffer inputBuffer, rtcm_t * rtcm) {
 		if (outputBuffer == NULL || outputBuffer->length == 0) {
 			fprintf(stderr, "returning empty output buffer\n");
 		} else {
-			fprintf(stderr, "returning output buffer");
+			fprintf(stderr, "returning output buffer\n");
 		}
 		// Totals are displayed frequently at first.
 		displayTotals();
