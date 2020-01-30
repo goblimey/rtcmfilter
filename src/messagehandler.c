@@ -249,6 +249,7 @@ void displayTotals() {
 	fprintf(stderr, "%s %ld messages, %ld failures,: %ld 1005, %ld 1074, %ld 1084, %ld 1094, %ld 1097, %ld 1124, %ld 1127, %ld 1230, %ld unexpected.\n",
 		timeStr,
 		rtcmMessagesSoFar,
+		illegalMessagesSoFar,
 		type1005MessagesSoFar,
 		type1074MessagesSoFar,
 		type1084MessagesSoFar,
@@ -311,26 +312,26 @@ Buffer * addMessageFragmentToBuffer(Buffer * buffer, unsigned char * fragment, s
 // fragments of them and return a Buffer containing just those data.
 Buffer * getRtcmDataBlocks(Buffer inputBuffer, rtcm_t * rtcm) {
 
-	/*
-	 * getRtcmDataBlocks() takes a buffer containing satellite navigation messages of all sorts and
-	 * returns a buffer containing only RTCM messages.  Data is read from a satnav device in real time
-	 * with a timeout specified and using a bounded buffer.  The resulting input buffer typically contains
-	 * a fragment of a message that is continued from the previous buffer, a series of complete messages
-	 * and a fragment of a message that is continued in the next buffer.  Variations on that include a
-	 * buffer which starts exactly at the start of a message, a buffer which is just one large fragment,
-	 * and so on.  Messages may be separated by null bytes and/or line breaks.  A line break may be a
-	 * newline or a Carriage Return Newline sequence (if the sending system is MS Windows).  Each message
-	 * may or may not be RTCM.  If the buffer contains two adjacent RTCM messages, there does not have to be
-	 * any separator between them.
-	 *
-	 * Each RTCM data block is a stream of bytes with a 24-bit big-endian header, a variable-length embedded
-	 * message and a 24-bit big-endian Cyclic Redundancy Check (CRC) value.  (To avoid confusion between the
-	 * whole stream of data and the embedded message, I call the sequence (header, embedded message, CRC)
-	 * the RTCM data block and uses message to refer to the embedded message.)  The header has 0xd3 in the top
-	 * byte and the bottom ten bits are the message length.  It appears that the other six bits are always
-	 * zero.  For example:
-	 *
-	 *     D3 00 13 3E D7 D3 02 02 98 0E DE EF 34 B4 BD 62 AC 09 41 98 6F 33 36 0B 98
+    /*
+     * getRtcmDataBlocks() takes a buffer containing satellite navigation messages of all sorts and
+     * returns a buffer containing only RTCM messages.  Data is read from a satnav device in real time
+     * with a timeout specified and using a bounded buffer.  The resulting input buffer typically contains
+     * a fragment of a message that is continued from the previous buffer, a series of complete messages
+     * and a fragment of a message that is continued in the next buffer.  Variations on that include a
+     * buffer which starts exactly at the start of a message, a buffer which is just one large fragment,
+     * and so on.  Messages may be separated by null bytes and/or line breaks.  A line break may be a
+     * newline or a Carriage Return Newline sequence (if the sending system is MS Windows).  Each message
+     * may or may not be RTCM.  If the buffer contains two adjacent RTCM messages, there does not have to be
+     * any separator between them.
+     *
+     * Each RTCM data block is a stream of bytes with a 24-bit big-endian header, a variable-length embedded
+     * message and a 24-bit big-endian Cyclic Redundancy Check (CRC) value.  (To avoid confusion between the
+     * whole stream of data and the embedded message, I call the sequence (header, embedded message, CRC)
+     * the RTCM data block and uses message to refer to the embedded message.)  The header has 0xd3 in the top
+     * byte and the bottom ten bits are the message length.  It appears that the other six bits are always
+     * zero.  For example:
+     *
+     *     D3 00 13 3E D7 D3 02 02 98 0E DE EF 34 B4 BD 62 AC 09 41 98 6F 33 36 0B 98
      *     -header-  1           5             10             15          19 ---CRC--
      *
      * The message contents is binary, actually a string of bits with fields of various sizes.  In this
@@ -350,28 +351,28 @@ Buffer * getRtcmDataBlocks(Buffer inputBuffer, rtcm_t * rtcm) {
      * various messages, so the format can be gleaned by reading that source code.
      *
      * This method takes the input buffer, scans it for RTCM data blocks, copies those to the output buffer
-	 * and discards anything else.  Since messages can span many buffers, some state must be preserved
-	 * between input buffers.
-	 *
-	 * The output buffer is built up on the fly using malloc() and realloc().  Since it only ever contains some or
-	 * all of the messages in the input buffer, and the length of that is bounded, the output buffer is bounded
-	 * automatically.
-	 *
-	 * To keep track of state between input buffers there is a state machine with states representing:
-	 * not processing an RTCM message (discarding whatever it sees); processing the start (possibly all) of an RTCM
-	 * data block; processing the continuation of an RTCM data block of unknown length, processing the continuation
-	 * of an RTCM data block of known length.  State data includes static variables to track how much of a message
-	 * that spans many buffers has already been processed.
-	 *
-	 * In verbose mode, the filter displays the first few input buffers and any RTCM messages in those buffers.
-	 *
-	 * Some messages (including RTCM) are binary so the buffer may contain several null bytes, which means
+     * and discards anything else.  Since messages can span many buffers, some state must be preserved
+     * between input buffers.
+     *
+     * The output buffer is built up on the fly using malloc() and realloc().  Since it only ever contains some or
+     * all of the messages in the input buffer, and the length of that is bounded, the output buffer is bounded
+     * automatically.
+     *
+     * To keep track of state between input buffers there is a state machine with states representing:
+     * not processing an RTCM message (discarding whatever it sees); processing the start (possibly all) of an RTCM
+     * data block; processing the continuation of an RTCM data block of unknown length, processing the continuation
+     * of an RTCM data block of known length.  State data includes static variables to track how much of a message
+     * that spans many buffers has already been processed.
+     *
+     * In verbose mode, the filter displays the first few input buffers and any RTCM messages in those buffers.
+     *
+     * Some messages (including RTCM) are binary so the buffer may contain several null bytes, which means
      * (a) you can't treat the buffer as a simple C string and (b) messages may contain what look like newlines or
      * RTCM headers, but which are just part of the data.  Also, in a noisy environment we should assume that
      * characters could be dropped.  To guard against all this, the function should check the CRC (using the code
      * from RTKLIB) and ignore any messages that are badly formatted, but at present it doesn't.  The destination
      * caster should have some error checking of its own, so letting some junk through should not be catastrophic.
-	 */
+     */
 
 	const unsigned char rtcm_header_byte = 0xd3;
 	static Buffer * trailingFragment = NULL;	// Holds any unprocessed fragment of the previous buffer.
