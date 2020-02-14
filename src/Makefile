@@ -11,6 +11,9 @@ endif
 
 all: rtcmfilter
 
+install: rtcmfilter
+	mv rtcmfilter /usr/local/bin
+
 rtcmfilter:	rtcmfilter.o messagehandler.o rtcm.o rtcm2.o rtcm3.o rtcm3e.o rtkcmn.o
 	gcc  -o rtcmfilter rtcmfilter.o messagehandler.o rtcm.o rtcm2.o rtcm3.o rtcm3e.o rtkcmn.o -lm
 

@@ -15,6 +15,9 @@ CFLAGS += -g
 all:
 	$(MAKE) -C $(PROJECT_ROOT)/src all
 
+install:
+	$(MAKE) -C $(PROJECT_ROOT)/src install
+
 test:
 	$(MAKE) -C $(PROJECT_ROOT)/src test
 
